@@ -137,7 +137,6 @@
   .page { display: none; }
   .page.active { display: block; }
 
-  /* ── WELCOME / MASCOT AREA ── */
   .welcome-area {
     margin: 16px 0 12px;
     background: var(--surface);
@@ -224,7 +223,6 @@
     line-height: 1.45;
   }
 
-  /* ── BALANCE CARD ── */
   .balance-card {
     background: var(--capy-brown);
     border-radius: var(--radius-lg);
@@ -295,7 +293,6 @@
     letter-spacing: -0.5px;
   }
 
-  /* ── TX LIST ── */
   .tx-group-date {
     font-size: 12px;
     font-weight: 600;
@@ -319,6 +316,7 @@
     gap: 12px;
     transition: background 0.15s;
     position: relative;
+    background: var(--surface);
   }
   .tx-item:not(:last-child)::after {
     content: '';
@@ -381,13 +379,13 @@
     align-items: center;
     transform: translateX(100%);
     transition: transform 0.25s ease;
+    z-index: 1;
   }
 
-  /* ── FAB ── */
   .fab {
     position: fixed;
     bottom: calc(env(safe-area-inset-bottom, 8px) + 72px);
-    right: calc(50% - 215px + 16px);
+    right: 20px;
     width: 56px;
     height: 56px;
     border-radius: 50%;
@@ -408,7 +406,6 @@
     box-shadow: 0 2px 8px rgba(139,99,64,0.3);
   }
 
-  /* ── SHEET ── */
   .sheet-overlay {
     position: fixed;
     inset: 0;
@@ -564,7 +561,6 @@
   }
   .cat-chip.selected .cat-chip-label { color: var(--capy-brown); }
 
-  /* ── ANALYTICS ── */
   .donut-wrap {
     display: flex;
     flex-direction: column;
@@ -591,7 +587,6 @@
   .legend-pct { font-size: 13px; color: var(--text2); margin-right: 8px; }
   .legend-amt { font-size: 14px; font-weight: 600; color: var(--red); }
 
-  /* ── BUDGETS ── */
   .budget-item { padding: 12px 0; position: relative; }
   .budget-item:not(:last-child)::after {
     content: '';
@@ -611,7 +606,6 @@
   .budget-bar-bg { height: 6px; background: var(--fill); border-radius: 3px; overflow: hidden; }
   .budget-bar-fill { height: 100%; border-radius: 3px; transition: width 0.6s cubic-bezier(0.34,1.56,0.64,1); }
 
-  /* ── CARD ── */
   .card {
     background: var(--surface);
     border-radius: var(--radius-lg);
@@ -676,36 +670,10 @@
   }
   @keyframes spin { to { transform: rotate(360deg); } }
 
-  /* Quick stats strip */
-  .quick-strip {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 10px;
-    margin-bottom: 12px;
+  .btn-loading {
+    opacity: 0.6;
+    pointer-events: none;
   }
-  .quick-stat {
-    background: var(--surface);
-    border-radius: var(--radius);
-    padding: 14px;
-    border: 0.5px solid var(--separator);
-    box-shadow: var(--shadow);
-  }
-  .quick-stat-label {
-    font-size: 11px;
-    color: var(--text2);
-    font-weight: 600;
-    text-transform: uppercase;
-    letter-spacing: 0.4px;
-    margin-bottom: 4px;
-  }
-  .quick-stat-val {
-    font-size: 20px;
-    font-weight: 700;
-    letter-spacing: -0.6px;
-    color: var(--capy-dark);
-  }
-  .quick-stat-val.green { color: var(--green); }
-  .quick-stat-val.red { color: var(--red); }
 </style>
 </head>
 <body>
@@ -723,10 +691,7 @@
 </div>
 
 <div class="content">
-  <!-- HOME -->
   <div class="page active" id="page-home">
-
-    <!-- MASCOT WELCOME AREA -->
     <div class="welcome-area" style="margin-top:16px">
       <div class="mascot-image-area" id="mascotArea">
         <div class="mascot-placeholder" id="mascotPlaceholder">
@@ -764,7 +729,6 @@
     <div id="txListWrap"></div>
   </div>
 
-  <!-- ANALYTICS -->
   <div class="page" id="page-analytics">
     <div class="card" style="margin-top:16px">
       <div class="card-title">Spending by Category</div>
@@ -772,13 +736,12 @@
     </div>
   </div>
 
-  <!-- BUDGETS -->
   <div class="page" id="page-budgets">
     <div id="budgetListWrap" style="margin-top:16px"></div>
   </div>
 </div>
 
-<button class="fab" id="fabBtn" onclick="openSheet()">+</button>
+<button class="fab" id="fabBtn">+</button>
 
 <div class="tab-bar">
   <div class="tab-item active" onclick="switchTab('home', this)">
@@ -795,13 +758,13 @@
   </div>
 </div>
 
-<!-- ADD SHEET -->
-<div class="sheet-overlay" id="overlay" onclick="closeSheet()"></div>
+<div class="sheet-overlay" id="overlay"></div>
+
 <div class="sheet" id="sheet">
   <div class="sheet-handle"></div>
   <div class="sheet-header">
     <button class="sheet-cancel" onclick="closeSheet()">Cancel</button>
-    <div class="sheet-title" id="sheetTitle">Add Transaction</div>
+    <div class="sheet-title">Add Transaction</div>
     <button class="sheet-done" onclick="saveTransaction()">Add</button>
   </div>
   <div class="type-toggle">
@@ -826,7 +789,6 @@
   <div class="cat-grid" id="catGrid"></div>
 </div>
 
-<!-- BUDGET SHEET -->
 <div class="sheet" id="budgetSheet">
   <div class="sheet-handle"></div>
   <div class="sheet-header">
@@ -884,7 +846,6 @@ let touchX = 0;
 let isSavingBudget = false;
 let isSavingTransaction = false;
 
-// Helper Functions
 function formatMonth(ym) {
   const [y, m] = ym.split('-');
   return new Date(y, m-1, 1).toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
@@ -893,34 +854,45 @@ function formatMonth(ym) {
 function formatDate(dateStr) {
   if (!dateStr) return 'No date';
   
-  let d;
-  if (dateStr.includes('-')) {
-    d = new Date(dateStr + 'T12:00:00');
-  } else {
-    d = new Date(dateStr);
-  }
-  
-  if (isNaN(d.getTime())) {
+  try {
+    let d;
+    if (typeof dateStr === 'string' && dateStr.includes('-')) {
+      const parts = dateStr.split('-');
+      if (parts.length === 3) {
+        d = new Date(parseInt(parts[0]), parseInt(parts[1]) - 1, parseInt(parts[2]));
+      } else {
+        d = new Date(dateStr);
+      }
+    } else {
+      d = new Date(dateStr);
+    }
+    
+    if (isNaN(d.getTime())) {
+      console.warn('Invalid date:', dateStr);
+      return 'Invalid date';
+    }
+    
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    
+    const yesterday = new Date(today);
+    yesterday.setDate(today.getDate() - 1);
+    
+    const compareDate = new Date(d.getFullYear(), d.getMonth(), d.getDate());
+    compareDate.setHours(0, 0, 0, 0);
+    
+    if (compareDate.getTime() === today.getTime()) return 'Today';
+    if (compareDate.getTime() === yesterday.getTime()) return 'Yesterday';
+    
+    return d.toLocaleDateString('en-US', { 
+      weekday: 'short', 
+      month: 'short', 
+      day: 'numeric' 
+    });
+  } catch (e) {
+    console.error('Error formatting date:', dateStr, e);
     return 'Invalid date';
   }
-  
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
-  
-  const yesterday = new Date(today);
-  yesterday.setDate(today.getDate() - 1);
-  
-  const compareDate = new Date(d.getFullYear(), d.getMonth(), d.getDate());
-  compareDate.setHours(0, 0, 0, 0);
-  
-  if (compareDate.getTime() === today.getTime()) return 'Today';
-  if (compareDate.getTime() === yesterday.getTime()) return 'Yesterday';
-  
-  return d.toLocaleDateString('en-US', { 
-    weekday: 'short', 
-    month: 'short', 
-    day: 'numeric' 
-  });
 }
 
 function fmt(n) {
@@ -938,14 +910,6 @@ function getCatBg(cat, type) {
   return CAPY_COLORS[(idx >= 0 ? idx : 7) % CAPY_COLORS.length] + '22';
 }
 
-function escapeHtml(text) {
-  if (!text) return '';
-  const div = document.createElement('div');
-  div.textContent = text;
-  return div.innerHTML;
-}
-
-// Navigation
 function changeMonth(dir) {
   const [y, m] = currentMonth.split('-').map(Number);
   const d = new Date(y, m - 1 + dir, 1);
@@ -966,16 +930,13 @@ function switchTab(tab, el) {
   const fab = document.getElementById('fabBtn');
   if (tab === 'budgets') { 
     fab.onclick = openBudgetSheet;
-    fab.textContent = '+';
   } else { 
     fab.onclick = openSheet;
-    fab.textContent = '+';
   }
   if (tab === 'analytics') renderAnalytics();
   if (tab === 'budgets') renderBudgets();
 }
 
-// API Calls
 async function fetchJSON(url, opts) {
   const r = await fetch(url, opts);
   if (!r.ok) throw new Error(await r.text());
@@ -1010,7 +971,6 @@ async function loadTransactions() {
   }
 }
 
-// Transactions
 function renderTransactions() {
   const wrap = document.getElementById('txListWrap');
   if (!transactions.length) {
@@ -1049,6 +1009,13 @@ function renderTransactions() {
       </div>`).join('');
     return `<div class="tx-group-date">${label}</div><div class="tx-list">${items}</div>`;
   }).join('');
+}
+
+function escapeHtml(text) {
+  if (!text) return '';
+  const div = document.createElement('div');
+  div.textContent = text;
+  return div.innerHTML;
 }
 
 function touchStart(e, id) { 
@@ -1124,7 +1091,6 @@ async function deleteTx(id) {
   }
 }
 
-// Transaction Sheet
 function openSheet() {
   setType('expense');
   document.getElementById('inputAmount').value = '';
@@ -1218,7 +1184,6 @@ async function saveTransaction() {
   }
 }
 
-// Analytics
 async function renderAnalytics() {
   const wrap = document.getElementById('donutWrap');
   wrap.innerHTML = '<div class="spinner"></div>';
@@ -1271,7 +1236,6 @@ async function renderAnalytics() {
   }
 }
 
-// Budgets
 async function renderBudgets() {
   const wrap = document.getElementById('budgetListWrap');
   wrap.innerHTML = '<div class="spinner"></div>';
@@ -1394,7 +1358,6 @@ async function deleteBudget(id) {
   }
 }
 
-// Toast Notifications
 let toastTimer;
 function showToast(msg) {
   const t = document.getElementById('toast');
@@ -1404,7 +1367,6 @@ function showToast(msg) {
   toastTimer = setTimeout(() => t.classList.remove('show'), 2000);
 }
 
-// Mascot Upload
 function handleMascotUpload(event) {
   const file = event.target.files[0];
   if (!file) return;
@@ -1428,7 +1390,6 @@ function handleMascotUpload(event) {
   reader.readAsDataURL(file);
 }
 
-// Initialize
 (function restoreMascot() {
   try {
     const saved = localStorage.getItem('capyMascotImage');
@@ -1446,13 +1407,11 @@ function handleMascotUpload(event) {
   } catch(e) {}
 })();
 
-// Close sheets when clicking overlay
 document.getElementById('overlay').addEventListener('click', () => { 
   closeBudgetSheet(); 
   closeSheet(); 
 });
 
-// Initial load
 refreshAll();
 </script>
 </body>
