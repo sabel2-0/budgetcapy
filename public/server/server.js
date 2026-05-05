@@ -12,7 +12,7 @@ const cors = require('cors');
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-// Log environment (without exposing sensitive data)
+// Log environment
 console.log(`🚀 Starting server in ${process.env.NODE_ENV || 'development'} mode`);
 console.log(`📡 Database config: ${process.env.DATABASE_URL ? 'Using DATABASE_URL' : 'Using individual variables'}`);
 
@@ -26,7 +26,6 @@ if (process.env.DATABASE_URL) {
     waitForConnections: true,
     connectionLimit: 10,
     queueLimit: 0,
-    // Required for some cloud databases
     ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : undefined
   };
 } else if (process.env.MYSQL_HOST && process.env.MYSQL_USER && process.env.MYSQL_DATABASE) {
@@ -44,7 +43,7 @@ if (process.env.DATABASE_URL) {
   };
 } else {
   console.error('❌ No database configuration found!');
-  console.error('Please set DATABASE_URL or MySQL environment variables in Render dashboard');
+  console.error('Please set DATABASE_URL or MySQL environment variables');
   process.exit(1);
 }
 
@@ -270,6 +269,7 @@ app.get('/api/budgets', async (req, res) => {
     const connection = await pool.getConnection();
     const [budgets] = await connection.execute(`SELECT * FROM budgets WHERE month = ?`, [m]);
 
+    // Enrich with spending data
     const enriched = await Promise.all(
       budgets.map(async (b) => {
         const [[{ total }]] = await connection.execute(
@@ -290,7 +290,7 @@ app.get('/api/budgets', async (req, res) => {
   }
 });
 
-// POST budget
+// POST budget (upsert)
 app.post('/api/budgets', async (req, res) => {
   try {
     const { category, limit_amount, month } = req.body;
@@ -310,7 +310,7 @@ app.post('/api/budgets', async (req, res) => {
     );
 
     connection.release();
-    res.json({ success: true });
+    res.json({ success: true, message: 'Budget saved successfully' });
   } catch (error) {
     console.error('Error creating/updating budget:', error);
     res.status(500).json({ error: 'Failed to save budget' });
