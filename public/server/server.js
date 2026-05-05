@@ -289,6 +289,11 @@ app.post('/api/budgets', async (req, res) => {
   }
 });
 
+app.get('/api/db-check', async (req, res) => {
+  const [rows] = await pool.query('SELECT DATABASE() AS db');
+  res.json(rows[0]);
+});
+
 // DELETE budget
 app.delete('/api/budgets/:id', async (req, res) => {
   try {
