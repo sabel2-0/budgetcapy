@@ -1,6 +1,9 @@
 const path = require('path');
-// Specify the correct path to .env file (project root)
-require('dotenv').config({ path: path.join(__dirname, '../../.env') });
+
+// Only load .env in development (not on Render/Railway)
+if (process.env.NODE_ENV !== 'production') {
+  require('dotenv').config({ path: path.join(__dirname, '../../.env') });
+}
 
 const express = require('express');
 const mysql = require('mysql2/promise');
@@ -9,46 +12,61 @@ const cors = require('cors');
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-// Debug: Check if env vars are loaded
-console.log('🔍 Environment variables loaded:');
-console.log(`   MYSQL_HOST: ${process.env.MYSQL_HOST ? '✅' : '❌'}`);
-console.log(`   MYSQL_DATABASE: ${process.env.MYSQL_DATABASE ? '✅' : '❌'}`);
-console.log(`   MYSQL_USER: ${process.env.MYSQL_USER ? '✅' : '❌'}`);
-console.log(`   MYSQL_PASSWORD: ${process.env.MYSQL_PASSWORD ? '✅' : '❌'}`);
+// Log environment (without exposing sensitive data)
+console.log(`🚀 Starting server in ${process.env.NODE_ENV || 'development'} mode`);
+console.log(`📡 Database config: ${process.env.DATABASE_URL ? 'Using DATABASE_URL' : 'Using individual variables'}`);
 
 // ── MySQL Connection Pool ───────────────────────────────────────
-// Use DATABASE_URL if available (Railway provides this), otherwise fallback to individual vars
-const dbConfig = process.env.DATABASE_URL 
-  ? process.env.DATABASE_URL
-  : {
-      host: process.env.MYSQL_HOST,
-      user: process.env.MYSQL_USER,
-      password: process.env.MYSQL_PASSWORD,
-      database: process.env.MYSQL_DATABASE,
-      port: process.env.MYSQL_PORT,
-      waitForConnections: true,
-      connectionLimit: 10,
-      queueLimit: 0
-    };
+let dbConfig;
 
-console.log('📡 Connecting to database...');
-console.log(`📍 Host: ${process.env.MYSQL_HOST || 'Not set'}:${process.env.MYSQL_PORT || 'Not set'}`);
-console.log(`💾 Database: ${process.env.MYSQL_DATABASE || 'Not set'}`);
-
-// Validate required environment variables
-if (!process.env.MYSQL_HOST || !process.env.MYSQL_USER || !process.env.MYSQL_DATABASE) {
-  console.error('❌ Missing required database environment variables!');
-  console.error('Please check your .env file has: MYSQL_HOST, MYSQL_USER, MYSQL_DATABASE');
+if (process.env.DATABASE_URL) {
+  console.log('✅ Using DATABASE_URL for connection');
+  dbConfig = {
+    uri: process.env.DATABASE_URL,
+    waitForConnections: true,
+    connectionLimit: 10,
+    queueLimit: 0,
+    // Required for some cloud databases
+    ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : undefined
+  };
+} else if (process.env.MYSQL_HOST && process.env.MYSQL_USER && process.env.MYSQL_DATABASE) {
+  console.log('✅ Using individual MySQL variables');
+  dbConfig = {
+    host: process.env.MYSQL_HOST,
+    user: process.env.MYSQL_USER,
+    password: process.env.MYSQL_PASSWORD,
+    database: process.env.MYSQL_DATABASE,
+    port: parseInt(process.env.MYSQL_PORT) || 3306,
+    waitForConnections: true,
+    connectionLimit: 10,
+    queueLimit: 0,
+    ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : undefined
+  };
+} else {
+  console.error('❌ No database configuration found!');
+  console.error('Please set DATABASE_URL or MySQL environment variables in Render dashboard');
   process.exit(1);
 }
 
 const pool = mysql.createPool(dbConfig);
 
+// Test database connection
+async function testConnection() {
+  try {
+    const connection = await pool.getConnection();
+    console.log('✅ Database connected successfully');
+    connection.release();
+    return true;
+  } catch (error) {
+    console.error('❌ Database connection failed:', error.message);
+    return false;
+  }
+}
+
 // ── Initialize Database Tables ──────────────────────────────────
 async function initializeDB() {
   const connection = await pool.getConnection();
   try {
-    // Transactions table
     await connection.execute(`
       CREATE TABLE IF NOT EXISTS transactions (
         id INT AUTO_INCREMENT PRIMARY KEY,
@@ -63,7 +81,6 @@ async function initializeDB() {
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
     `);
 
-    // Budgets table
     await connection.execute(`
       CREATE TABLE IF NOT EXISTS budgets (
         id INT AUTO_INCREMENT PRIMARY KEY,
@@ -85,20 +102,14 @@ async function initializeDB() {
   }
 }
 
-// Initialize on startup
-initializeDB().catch(err => {
-  console.error('Failed to initialize database:', err);
-  process.exit(1);
-});
-
 // ── Middleware ──────────────────────────────────────────────────
 app.use(cors());
 app.use(express.json());
 app.use(express.static(path.join(__dirname, '../..')));
 
-// ── Transactions API ────────────────────────────────────────────
+// ── API Routes ──────────────────────────────────────────────────
 
-// GET all transactions (optional month filter)
+// GET all transactions
 app.get('/api/transactions', async (req, res) => {
   try {
     const { month } = req.query;
@@ -170,10 +181,7 @@ app.post('/api/transactions', async (req, res) => {
 app.delete('/api/transactions/:id', async (req, res) => {
   try {
     const connection = await pool.getConnection();
-    await connection.execute(
-      `DELETE FROM transactions WHERE id = ?`,
-      [req.params.id]
-    );
+    await connection.execute(`DELETE FROM transactions WHERE id = ?`, [req.params.id]);
     connection.release();
     res.json({ success: true });
   } catch (error) {
@@ -182,7 +190,7 @@ app.delete('/api/transactions/:id', async (req, res) => {
   }
 });
 
-// ── Summary API ─────────────────────────────────────────────────
+// GET summary
 app.get('/api/summary', async (req, res) => {
   try {
     const { month } = req.query;
@@ -223,13 +231,11 @@ app.get('/api/summary', async (req, res) => {
       expense = expenseTotal;
     } else {
       [[{ total: incomeTotal }]] = await connection.execute(
-        `SELECT COALESCE(SUM(amount), 0) as total
-         FROM transactions WHERE type = 'income'`
+        `SELECT COALESCE(SUM(amount), 0) as total FROM transactions WHERE type = 'income'`
       );
 
       [[{ total: expenseTotal }]] = await connection.execute(
-        `SELECT COALESCE(SUM(amount), 0) as total
-         FROM transactions WHERE type = 'expense'`
+        `SELECT COALESCE(SUM(amount), 0) as total FROM transactions WHERE type = 'expense'`
       );
 
       [byCategory] = await connection.execute(
@@ -244,19 +250,12 @@ app.get('/api/summary', async (req, res) => {
     }
 
     connection.release();
-    res.json({
-      income,
-      expense,
-      balance: income - expense,
-      byCategory
-    });
+    res.json({ income, expense, balance: income - expense, byCategory });
   } catch (error) {
     console.error('Error fetching summary:', error);
     res.status(500).json({ error: 'Failed to fetch summary' });
   }
 });
-
-// ── Budgets API ─────────────────────────────────────────────────
 
 // GET budgets
 app.get('/api/budgets', async (req, res) => {
@@ -269,12 +268,8 @@ app.get('/api/budgets', async (req, res) => {
     }
 
     const connection = await pool.getConnection();
-    const [budgets] = await connection.execute(
-      `SELECT * FROM budgets WHERE month = ?`,
-      [m]
-    );
+    const [budgets] = await connection.execute(`SELECT * FROM budgets WHERE month = ?`, [m]);
 
-    // Enrich with spending data
     const enriched = await Promise.all(
       budgets.map(async (b) => {
         const [[{ total }]] = await connection.execute(
@@ -295,7 +290,7 @@ app.get('/api/budgets', async (req, res) => {
   }
 });
 
-// POST budget (upsert)
+// POST budget
 app.post('/api/budgets', async (req, res) => {
   try {
     const { category, limit_amount, month } = req.body;
@@ -326,10 +321,7 @@ app.post('/api/budgets', async (req, res) => {
 app.delete('/api/budgets/:id', async (req, res) => {
   try {
     const connection = await pool.getConnection();
-    await connection.execute(
-      `DELETE FROM budgets WHERE id = ?`,
-      [req.params.id]
-    );
+    await connection.execute(`DELETE FROM budgets WHERE id = ?`, [req.params.id]);
     connection.release();
     res.json({ success: true });
   } catch (error) {
@@ -338,27 +330,44 @@ app.delete('/api/budgets/:id', async (req, res) => {
   }
 });
 
-// ── Health Check ────────────────────────────────────────────────
+// Health check
 app.get('/api/health', async (req, res) => {
   try {
     const connection = await pool.getConnection();
     await connection.execute('SELECT 1');
     connection.release();
-    res.json({ status: 'OK', database: 'Connected' });
+    res.json({ status: 'OK', database: 'Connected', environment: process.env.NODE_ENV });
   } catch (error) {
     res.status(500).json({ status: 'ERROR', database: 'Disconnected', error: error.message });
   }
 });
 
 // ── Start Server ────────────────────────────────────────────────
-app.listen(PORT, () => {
-  console.log(`✅ Budget Tracker running on port ${PORT}`);
-  console.log(`📊 Database: ${process.env.MYSQL_DATABASE}`);
-  console.log(`🏠 Host: ${process.env.MYSQL_HOST}:${process.env.MYSQL_PORT}`);
-});
+async function startServer() {
+  const isConnected = await testConnection();
+  if (!isConnected) {
+    console.error('❌ Cannot start server without database connection');
+    process.exit(1);
+  }
+  
+  await initializeDB();
+  
+  app.listen(PORT, '0.0.0.0', () => {
+    console.log(`✅ Budget Tracker running on port ${PORT}`);
+    console.log(`🌍 Server is ready for requests`);
+  });
+}
+
+startServer();
 
 // Graceful shutdown
 process.on('SIGINT', async () => {
+  console.log('\n🛑 Shutting down...');
+  await pool.end();
+  process.exit(0);
+});
+
+process.on('SIGTERM', async () => {
   console.log('\n🛑 Shutting down...');
   await pool.end();
   process.exit(0);
