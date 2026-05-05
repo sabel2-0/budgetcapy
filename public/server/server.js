@@ -1,4 +1,4 @@
-require('dotenv').config({ path: require('path').resolve(__dirname, '../../.env') });
+require('dotenv').config();
 const express = require('express');
 const mysql = require('mysql2/promise');
 const path = require('path');
@@ -9,15 +9,10 @@ const PORT = process.env.PORT || 3000;
 
 // ── MySQL Connection Pool ───────────────────────────────────────
 const pool = mysql.createPool({
-  host: process.env.MYSQL_HOST || 'mysql.railway.internal',
-  port: process.env.MYSQL_PORT || 3306,
-  user: process.env.MYSQL_USER || 'root',
-  password: process.env.MYSQL_PASSWORD || 'VpQJLusojwguqowugyGJDoesxQmUMWuV',
-  database: process.env.MYSQL_DATABASE || 'railway',
+  uri: process.env.DATABASE_URL,
   waitForConnections: true,
   connectionLimit: 10,
-  queueLimit: 0,
-  enableKeepAlive: true
+  queueLimit: 0
 });
 
 // ── Initialize Database Tables ──────────────────────────────────
