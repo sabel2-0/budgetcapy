@@ -1,14 +1,48 @@
-require('dotenv').config();
+const path = require('path');
+// Specify the correct path to .env file (project root)
+require('dotenv').config({ path: path.join(__dirname, '../../.env') });
+
 const express = require('express');
 const mysql = require('mysql2/promise');
-const path = require('path');
 const cors = require('cors');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
 
+// Debug: Check if env vars are loaded
+console.log('🔍 Environment variables loaded:');
+console.log(`   MYSQL_HOST: ${process.env.MYSQL_HOST ? '✅' : '❌'}`);
+console.log(`   MYSQL_DATABASE: ${process.env.MYSQL_DATABASE ? '✅' : '❌'}`);
+console.log(`   MYSQL_USER: ${process.env.MYSQL_USER ? '✅' : '❌'}`);
+console.log(`   MYSQL_PASSWORD: ${process.env.MYSQL_PASSWORD ? '✅' : '❌'}`);
+
 // ── MySQL Connection Pool ───────────────────────────────────────
-const pool = mysql.createPool(process.env.DATABASE_URL);
+// Use DATABASE_URL if available (Railway provides this), otherwise fallback to individual vars
+const dbConfig = process.env.DATABASE_URL 
+  ? process.env.DATABASE_URL
+  : {
+      host: process.env.MYSQL_HOST,
+      user: process.env.MYSQL_USER,
+      password: process.env.MYSQL_PASSWORD,
+      database: process.env.MYSQL_DATABASE,
+      port: process.env.MYSQL_PORT,
+      waitForConnections: true,
+      connectionLimit: 10,
+      queueLimit: 0
+    };
+
+console.log('📡 Connecting to database...');
+console.log(`📍 Host: ${process.env.MYSQL_HOST || 'Not set'}:${process.env.MYSQL_PORT || 'Not set'}`);
+console.log(`💾 Database: ${process.env.MYSQL_DATABASE || 'Not set'}`);
+
+// Validate required environment variables
+if (!process.env.MYSQL_HOST || !process.env.MYSQL_USER || !process.env.MYSQL_DATABASE) {
+  console.error('❌ Missing required database environment variables!');
+  console.error('Please check your .env file has: MYSQL_HOST, MYSQL_USER, MYSQL_DATABASE');
+  process.exit(1);
+}
+
+const pool = mysql.createPool(dbConfig);
 
 // ── Initialize Database Tables ──────────────────────────────────
 async function initializeDB() {
@@ -60,9 +94,9 @@ initializeDB().catch(err => {
 // ── Middleware ──────────────────────────────────────────────────
 app.use(cors());
 app.use(express.json());
-app.use(express.static(path.join(__dirname, '..')));
+app.use(express.static(path.join(__dirname, '../..')));
 
-// ── Transactions ────────────────────────────────────────────────
+// ── Transactions API ────────────────────────────────────────────
 
 // GET all transactions (optional month filter)
 app.get('/api/transactions', async (req, res) => {
@@ -72,7 +106,6 @@ app.get('/api/transactions', async (req, res) => {
 
     let rows;
     if (month) {
-      // Validate month format YYYY-MM
       if (!/^\d{4}-\d{2}$/.test(month)) {
         connection.release();
         return res.status(400).json({ error: 'Invalid month format (use YYYY-MM)' });
@@ -149,7 +182,7 @@ app.delete('/api/transactions/:id', async (req, res) => {
   }
 });
 
-// ── Summary ─────────────────────────────────────────────────────
+// ── Summary API ─────────────────────────────────────────────────
 app.get('/api/summary', async (req, res) => {
   try {
     const { month } = req.query;
@@ -223,7 +256,7 @@ app.get('/api/summary', async (req, res) => {
   }
 });
 
-// ── Budgets ─────────────────────────────────────────────────────
+// ── Budgets API ─────────────────────────────────────────────────
 
 // GET budgets
 app.get('/api/budgets', async (req, res) => {
@@ -289,11 +322,6 @@ app.post('/api/budgets', async (req, res) => {
   }
 });
 
-app.get('/api/db-check', async (req, res) => {
-  const [rows] = await pool.query('SELECT DATABASE() AS db');
-  res.json(rows[0]);
-});
-
 // DELETE budget
 app.delete('/api/budgets/:id', async (req, res) => {
   try {
@@ -318,15 +346,15 @@ app.get('/api/health', async (req, res) => {
     connection.release();
     res.json({ status: 'OK', database: 'Connected' });
   } catch (error) {
-    res.status(500).json({ status: 'ERROR', database: 'Disconnected' });
+    res.status(500).json({ status: 'ERROR', database: 'Disconnected', error: error.message });
   }
 });
 
 // ── Start Server ────────────────────────────────────────────────
 app.listen(PORT, () => {
   console.log(`✅ Budget Tracker running on port ${PORT}`);
-  console.log(`📊 Database: ${process.env.MYSQL_DATABASE || 'railway'}`);
-  console.log(`🏠 Host: ${process.env.MYSQL_HOST || 'mysql.railway.internal'}`);
+  console.log(`📊 Database: ${process.env.MYSQL_DATABASE}`);
+  console.log(`🏠 Host: ${process.env.MYSQL_HOST}:${process.env.MYSQL_PORT}`);
 });
 
 // Graceful shutdown
