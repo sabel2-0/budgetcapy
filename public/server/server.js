@@ -8,12 +8,7 @@ const app = express();
 const PORT = process.env.PORT || 3000;
 
 // ── MySQL Connection Pool ───────────────────────────────────────
-const pool = mysql.createPool({
-  uri: process.env.DATABASE_URL,
-  waitForConnections: true,
-  connectionLimit: 10,
-  queueLimit: 0
-});
+const pool = mysql.createPool(process.env.DATABASE_URL);
 
 // ── Initialize Database Tables ──────────────────────────────────
 async function initializeDB() {
