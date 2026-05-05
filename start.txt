@@ -1,0 +1,10 @@
+mkdir your-project
+cd your-project
+
+npm init -y
+npm install express
+npm install -D nodemon
+cd server
+npx nodemon server.js
+/////////////////////////////////////
+npm install express better-sqlite3 cors
