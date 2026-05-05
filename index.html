@@ -880,56 +880,47 @@ let selectedType = 'expense';
 let selectedCat = '';
 let transactions = [];
 let budgets = [];
+let touchX = 0;
+let isSavingBudget = false;
+let isSavingTransaction = false;
 
+// Helper Functions
 function formatMonth(ym) {
   const [y, m] = ym.split('-');
   return new Date(y, m-1, 1).toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
 }
-function changeMonth(dir) {
-  const [y, m] = currentMonth.split('-').map(Number);
-  const d = new Date(y, m - 1 + dir, 1);
-  currentMonth = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`;
-  document.getElementById('monthLabel').textContent = formatMonth(currentMonth);
-  refreshAll();
-}
-document.getElementById('monthLabel').textContent = formatMonth(currentMonth);
 
-let activeTab = 'home';
-function switchTab(tab, el) {
-  document.querySelectorAll('.tab-item').forEach(t => t.classList.remove('active'));
-  document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
-  el.classList.add('active');
-  document.getElementById(`page-${tab}`).classList.add('active');
-  activeTab = tab;
-  const fab = document.getElementById('fabBtn');
-  if (tab === 'budgets') { fab.onclick = openBudgetSheet; }
-  else { fab.onclick = openSheet; }
-  if (tab === 'analytics') renderAnalytics();
-  if (tab === 'budgets') renderBudgets();
-}
-
-async function fetchJSON(url, opts) {
-  const r = await fetch(url, opts);
-  if (!r.ok) throw new Error(await r.text());
-  return r.json();
-}
-
-async function refreshAll() {
-  await Promise.all([loadSummary(), loadTransactions()]);
-  if (activeTab === 'analytics') renderAnalytics();
-  if (activeTab === 'budgets') renderBudgets();
-}
-
-async function loadSummary() {
-  const s = await fetchJSON(`${API}/summary?month=${currentMonth}`);
-  document.getElementById('balanceAmt').textContent = fmt(s.balance);
-  document.getElementById('incomeAmt').textContent = fmt(s.income);
-  document.getElementById('expenseAmt').textContent = fmt(s.expense);
-}
-
-async function loadTransactions() {
-  transactions = await fetchJSON(`${API}/transactions?month=${currentMonth}`);
-  renderTransactions();
+function formatDate(dateStr) {
+  if (!dateStr) return 'No date';
+  
+  let d;
+  if (dateStr.includes('-')) {
+    d = new Date(dateStr + 'T12:00:00');
+  } else {
+    d = new Date(dateStr);
+  }
+  
+  if (isNaN(d.getTime())) {
+    return 'Invalid date';
+  }
+  
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  
+  const yesterday = new Date(today);
+  yesterday.setDate(today.getDate() - 1);
+  
+  const compareDate = new Date(d.getFullYear(), d.getMonth(), d.getDate());
+  compareDate.setHours(0, 0, 0, 0);
+  
+  if (compareDate.getTime() === today.getTime()) return 'Today';
+  if (compareDate.getTime() === yesterday.getTime()) return 'Yesterday';
+  
+  return d.toLocaleDateString('en-US', { 
+    weekday: 'short', 
+    month: 'short', 
+    day: 'numeric' 
+  });
 }
 
 function fmt(n) {
@@ -947,27 +938,111 @@ function getCatBg(cat, type) {
   return CAPY_COLORS[(idx >= 0 ? idx : 7) % CAPY_COLORS.length] + '22';
 }
 
+function escapeHtml(text) {
+  if (!text) return '';
+  const div = document.createElement('div');
+  div.textContent = text;
+  return div.innerHTML;
+}
+
+// Navigation
+function changeMonth(dir) {
+  const [y, m] = currentMonth.split('-').map(Number);
+  const d = new Date(y, m - 1 + dir, 1);
+  currentMonth = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`;
+  document.getElementById('monthLabel').textContent = formatMonth(currentMonth);
+  refreshAll();
+}
+
+document.getElementById('monthLabel').textContent = formatMonth(currentMonth);
+
+let activeTab = 'home';
+function switchTab(tab, el) {
+  document.querySelectorAll('.tab-item').forEach(t => t.classList.remove('active'));
+  document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+  el.classList.add('active');
+  document.getElementById(`page-${tab}`).classList.add('active');
+  activeTab = tab;
+  const fab = document.getElementById('fabBtn');
+  if (tab === 'budgets') { 
+    fab.onclick = openBudgetSheet;
+    fab.textContent = '+';
+  } else { 
+    fab.onclick = openSheet;
+    fab.textContent = '+';
+  }
+  if (tab === 'analytics') renderAnalytics();
+  if (tab === 'budgets') renderBudgets();
+}
+
+// API Calls
+async function fetchJSON(url, opts) {
+  const r = await fetch(url, opts);
+  if (!r.ok) throw new Error(await r.text());
+  return r.json();
+}
+
+async function refreshAll() {
+  await Promise.all([loadSummary(), loadTransactions()]);
+  if (activeTab === 'analytics') renderAnalytics();
+  if (activeTab === 'budgets') renderBudgets();
+}
+
+async function loadSummary() {
+  try {
+    const s = await fetchJSON(`${API}/summary?month=${currentMonth}`);
+    document.getElementById('balanceAmt').textContent = fmt(s.balance);
+    document.getElementById('incomeAmt').textContent = fmt(s.income);
+    document.getElementById('expenseAmt').textContent = fmt(s.expense);
+  } catch (error) {
+    console.error('Error loading summary:', error);
+    showToast('Error loading data');
+  }
+}
+
+async function loadTransactions() {
+  try {
+    transactions = await fetchJSON(`${API}/transactions?month=${currentMonth}`);
+    renderTransactions();
+  } catch (error) {
+    console.error('Error loading transactions:', error);
+    showToast('Error loading transactions');
+  }
+}
+
+// Transactions
 function renderTransactions() {
   const wrap = document.getElementById('txListWrap');
   if (!transactions.length) {
     wrap.innerHTML = `<div class="empty"><div class="empty-icon">🌿</div><div class="empty-text">No transactions yet</div><div class="empty-sub">Tap + to log your first one</div></div>`;
     return;
   }
+  
   const groups = {};
   transactions.forEach(t => {
     if (!groups[t.date]) groups[t.date] = [];
     groups[t.date].push(t);
   });
-  wrap.innerHTML = Object.entries(groups).map(([date, txs]) => {
+  
+  const sortedDates = Object.keys(groups).sort((a, b) => new Date(b) - new Date(a));
+  
+  wrap.innerHTML = sortedDates.map(date => {
     const label = formatDate(date);
+    const txs = groups[date];
     const items = txs.map(t => `
       <div class="tx-item-wrap" id="txwrap-${t.id}">
         <button class="tx-delete-btn" onclick="deleteTx(${t.id})">Delete</button>
-        <div class="tx-item" ontouchstart="touchStart(event,${t.id})" ontouchend="touchEnd(event,${t.id})" ontouchmove="touchMove(event,${t.id})">
+        <div class="tx-item" 
+             ontouchstart="touchStart(event,${t.id})" 
+             ontouchend="touchEnd(event,${t.id})" 
+             ontouchmove="touchMove(event,${t.id})"
+             onmousedown="mouseStart(event,${t.id})"
+             onmousemove="mouseMove(event,${t.id})"
+             onmouseup="mouseEnd(event,${t.id})">
           <div class="tx-icon" style="background:${getCatBg(t.category, t.type)}">${getCatIcon(t.category)}</div>
           <div class="tx-info">
-            <div class="tx-category">${t.category}</div>
-            ${t.note ? `<div class="tx-note">${t.note}</div>` : ''}
+            <div class="tx-category">${escapeHtml(t.category)}</div>
+            ${t.note ? `<div class="tx-note">${escapeHtml(t.note)}</div>` : ''}
           </div>
           <div class="tx-amount ${t.type}">${t.type === 'income' ? '+' : '-'}${fmt(t.amount)}</div>
         </div>
@@ -976,58 +1051,98 @@ function renderTransactions() {
   }).join('');
 }
 
-function formatDate(dateStr) {
-  const d = new Date(dateStr + 'T00:00:00');
-  const today = new Date(); today.setHours(0,0,0,0);
-  const yesterday = new Date(today); yesterday.setDate(today.getDate()-1);
-  if (d.getTime() === today.getTime()) return 'Today';
-  if (d.getTime() === yesterday.getTime()) return 'Yesterday';
-  return d.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
+function touchStart(e, id) { 
+  touchX = e.touches[0].clientX; 
 }
 
-let touchX = 0;
-function touchStart(e, id) { touchX = e.touches[0].clientX; }
 function touchMove(e, id) {
   const dx = e.touches[0].clientX - touchX;
   const item = document.querySelector(`#txwrap-${id} .tx-item`);
   const btn = document.querySelector(`#txwrap-${id} .tx-delete-btn`);
   if (dx < -10) {
     const x = Math.max(-90, Math.min(0, dx));
-    item.style.transform = `translateX(${x}px)`;
-    btn.style.transform = `translateX(${100 + x/0.9}%)`;
+    if (item) item.style.transform = `translateX(${x}px)`;
+    if (btn) btn.style.transform = `translateX(${100 + x/0.9}%)`;
   }
 }
+
 function touchEnd(e, id) {
   const dx = e.changedTouches[0].clientX - touchX;
   const item = document.querySelector(`#txwrap-${id} .tx-item`);
   const btn = document.querySelector(`#txwrap-${id} .tx-delete-btn`);
   if (dx < -50) {
-    item.style.transform = 'translateX(-90px)';
-    btn.style.transform = 'translateX(0%)';
+    if (item) item.style.transform = 'translateX(-90px)';
+    if (btn) btn.style.transform = 'translateX(0%)';
   } else {
-    item.style.transform = '';
-    btn.style.transform = '';
+    if (item) item.style.transform = '';
+    if (btn) btn.style.transform = '';
   }
+  touchX = 0;
+}
+
+function mouseStart(e, id) {
+  e.preventDefault();
+  touchX = e.clientX;
+}
+
+function mouseMove(e, id) {
+  if (!touchX) return;
+  const dx = e.clientX - touchX;
+  const item = document.querySelector(`#txwrap-${id} .tx-item`);
+  const btn = document.querySelector(`#txwrap-${id} .tx-delete-btn`);
+  if (dx < -10) {
+    const x = Math.max(-90, Math.min(0, dx));
+    if (item) item.style.transform = `translateX(${x}px)`;
+    if (btn) btn.style.transform = `translateX(${100 + x/0.9}%)`;
+  }
+}
+
+function mouseEnd(e, id) {
+  if (!touchX) return;
+  const dx = e.clientX - touchX;
+  const item = document.querySelector(`#txwrap-${id} .tx-item`);
+  const btn = document.querySelector(`#txwrap-${id} .tx-delete-btn`);
+  if (dx < -50) {
+    if (item) item.style.transform = 'translateX(-90px)';
+    if (btn) btn.style.transform = 'translateX(0%)';
+  } else {
+    if (item) item.style.transform = '';
+    if (btn) btn.style.transform = '';
+  }
+  touchX = 0;
 }
 
 async function deleteTx(id) {
   if (!confirm('Delete this transaction?')) return;
-  await fetchJSON(`${API}/transactions/${id}`, { method: 'DELETE' });
-  showToast('Deleted');
-  refreshAll();
+  try {
+    await fetchJSON(`${API}/transactions/${id}`, { method: 'DELETE' });
+    showToast('Deleted');
+    refreshAll();
+  } catch (error) {
+    console.error('Error deleting transaction:', error);
+    showToast('Error deleting transaction');
+  }
 }
 
+// Transaction Sheet
 function openSheet() {
   setType('expense');
   document.getElementById('inputAmount').value = '';
   document.getElementById('inputNote').value = '';
-  document.getElementById('inputDate').value = new Date().toISOString().split('T')[0];
+  
+  const today = new Date();
+  const year = today.getFullYear();
+  const month = String(today.getMonth() + 1).padStart(2, '0');
+  const day = String(today.getDate()).padStart(2, '0');
+  document.getElementById('inputDate').value = `${year}-${month}-${day}`;
+  
   selectedCat = '';
   renderCatGrid();
   document.getElementById('overlay').classList.add('open');
   document.getElementById('sheet').classList.add('open');
   setTimeout(() => document.getElementById('inputAmount').focus(), 400);
 }
+
 function closeSheet() {
   document.getElementById('overlay').classList.remove('open');
   document.getElementById('sheet').classList.remove('open');
@@ -1050,90 +1165,172 @@ function renderCatGrid() {
     </div>`).join('');
 }
 
-function selectCat(id) { selectedCat = id; renderCatGrid(); }
-
-async function saveTransaction() {
-  const amount = parseFloat(document.getElementById('inputAmount').value);
-  const date = document.getElementById('inputDate').value;
-  const note = document.getElementById('inputNote').value;
-  if (!amount || amount <= 0) return showToast('Enter a valid amount');
-  if (!selectedCat) return showToast('Pick a category');
-  await fetchJSON(`${API}/transactions`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ type: selectedType, amount, category: selectedCat, note, date })
-  });
-  closeSheet();
-  showToast('Saved ✓');
-  refreshAll();
+function selectCat(id) { 
+  selectedCat = id; 
+  renderCatGrid(); 
 }
 
+async function saveTransaction() {
+  if (isSavingTransaction) return;
+  
+  const amount = parseFloat(document.getElementById('inputAmount').value);
+  let date = document.getElementById('inputDate').value;
+  const note = document.getElementById('inputNote').value;
+  
+  if (!amount || amount <= 0) {
+    showToast('Enter a valid amount');
+    return;
+  }
+  if (!selectedCat) {
+    showToast('Pick a category');
+    return;
+  }
+  if (!date) {
+    const today = new Date();
+    const year = today.getFullYear();
+    const month = String(today.getMonth() + 1).padStart(2, '0');
+    const day = String(today.getDate()).padStart(2, '0');
+    date = `${year}-${month}-${day}`;
+  }
+  
+  isSavingTransaction = true;
+  const saveBtn = document.querySelector('#sheet .sheet-done');
+  const originalText = saveBtn.textContent;
+  saveBtn.textContent = 'Saving...';
+  saveBtn.classList.add('btn-loading');
+  
+  try {
+    await fetchJSON(`${API}/transactions`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ type: selectedType, amount, category: selectedCat, note, date })
+    });
+    closeSheet();
+    showToast('Saved ✓');
+    await refreshAll();
+  } catch (error) {
+    console.error('Error saving transaction:', error);
+    showToast('Error saving transaction');
+  } finally {
+    isSavingTransaction = false;
+    saveBtn.textContent = originalText;
+    saveBtn.classList.remove('btn-loading');
+  }
+}
+
+// Analytics
 async function renderAnalytics() {
   const wrap = document.getElementById('donutWrap');
   wrap.innerHTML = '<div class="spinner"></div>';
-  const s = await fetchJSON(`${API}/summary?month=${currentMonth}`);
-  const expenses = s.byCategory.filter(x => x.type === 'expense');
-  const total = expenses.reduce((a, b) => a + b.total, 0);
-  if (!expenses.length) {
-    wrap.innerHTML = '<div class="empty"><div class="empty-icon">🌾</div><div class="empty-text">No expenses this month</div></div>';
-    return;
+  
+  try {
+    const s = await fetchJSON(`${API}/summary?month=${currentMonth}`);
+    const expenses = s.byCategory.filter(x => x.type === 'expense');
+    const total = expenses.reduce((a, b) => a + b.total, 0);
+    
+    if (!expenses.length) {
+      wrap.innerHTML = '<div class="empty"><div class="empty-icon">🌾</div><div class="empty-text">No expenses this month</div></div>';
+      return;
+    }
+    
+    const R = 70, cx = 90, cy = 90;
+    let offset = -Math.PI / 2;
+    const paths = expenses.map((e, i) => {
+      const pct = e.total / total;
+      const angle = pct * 2 * Math.PI;
+      const x1 = cx + R * Math.cos(offset);
+      const y1 = cy + R * Math.sin(offset);
+      offset += angle;
+      const x2 = cx + R * Math.cos(offset);
+      const y2 = cy + R * Math.sin(offset);
+      const large = angle > Math.PI ? 1 : 0;
+      return `<path d="M${cx},${cy} L${x1},${y1} A${R},${R} 0 ${large},1 ${x2},${y2} Z" fill="${CAPY_COLORS[i % CAPY_COLORS.length]}" opacity="0.88"/>`;
+    }).join('');
+    
+    const legend = expenses.map((e, i) => {
+      const pct = ((e.total / total) * 100).toFixed(1);
+      return `<div class="legend-item">
+        <div class="legend-dot" style="background:${CAPY_COLORS[i % CAPY_COLORS.length]}"></div>
+        <div class="legend-cat">${getCatIcon(e.category)} ${e.category}</div>
+        <div class="legend-pct">${pct}%</div>
+        <div class="legend-amt">-${fmt(e.total)}</div>
+      </div>`;
+    }).join('');
+    
+    wrap.innerHTML = `
+      <svg viewBox="0 0 180 180" width="180" height="180">
+        ${paths}
+        <circle cx="${cx}" cy="${cy}" r="48" fill="var(--surface)"/>
+        <text x="${cx}" y="${cy - 8}" text-anchor="middle" dominant-baseline="middle" font-size="11" fill="var(--text2)" font-family="DM Sans, sans-serif">Total</text>
+        <text x="${cx}" y="${cy + 10}" text-anchor="middle" dominant-baseline="middle" font-size="14" font-weight="700" fill="var(--capy-dark)" font-family="DM Sans, sans-serif">${fmt(total)}</text>
+      </svg>
+      <div class="legend-list">${legend}</div>`;
+  } catch (error) {
+    console.error('Error loading analytics:', error);
+    wrap.innerHTML = '<div class="empty"><div class="empty-text">Error loading data</div></div>';
   }
-  const R = 70, cx = 90, cy = 90;
-  let offset = -Math.PI / 2;
-  const paths = expenses.map((e, i) => {
-    const pct = e.total / total;
-    const angle = pct * 2 * Math.PI;
-    const x1 = cx + R * Math.cos(offset);
-    const y1 = cy + R * Math.sin(offset);
-    offset += angle;
-    const x2 = cx + R * Math.cos(offset);
-    const y2 = cy + R * Math.sin(offset);
-    const large = angle > Math.PI ? 1 : 0;
-    return `<path d="M${cx},${cy} L${x1},${y1} A${R},${R} 0 ${large},1 ${x2},${y2} Z" fill="${CAPY_COLORS[i % CAPY_COLORS.length]}" opacity="0.88"/>`;
-  }).join('');
-  const legend = expenses.map((e, i) => {
-    const pct = ((e.total / total) * 100).toFixed(1);
-    return `<div class="legend-item">
-      <div class="legend-dot" style="background:${CAPY_COLORS[i % CAPY_COLORS.length]}"></div>
-      <div class="legend-cat">${getCatIcon(e.category)} ${e.category}</div>
-      <div class="legend-pct">${pct}%</div>
-      <div class="legend-amt">-${fmt(e.total)}</div>
-    </div>`;
-  }).join('');
-  wrap.innerHTML = `
-    <svg viewBox="0 0 180 180" width="180" height="180">
-      ${paths}
-      <circle cx="${cx}" cy="${cy}" r="48" fill="var(--surface)"/>
-      <text x="${cx}" y="${cy - 8}" text-anchor="middle" dominant-baseline="middle" font-size="11" fill="var(--text2)" font-family="DM Sans, sans-serif">Total</text>
-      <text x="${cx}" y="${cy + 10}" text-anchor="middle" dominant-baseline="middle" font-size="14" font-weight="700" fill="var(--capy-dark)" font-family="DM Sans, sans-serif">${fmt(total)}</text>
-    </svg>
-    <div class="legend-list">${legend}</div>`;
 }
 
+// Budgets
 async function renderBudgets() {
-  budgets = await fetchJSON(`${API}/budgets?month=${currentMonth}`);
   const wrap = document.getElementById('budgetListWrap');
-  if (!budgets.length) {
-    wrap.innerHTML = `<div class="empty"><div class="empty-icon">🎯</div><div class="empty-text">No budgets yet</div><div class="empty-sub">Tap + to set spending limits</div></div>`;
-    return;
-  }
-  const items = budgets.map(b => {
-    const pct = Math.min(100, (b.spent / b.limit_amount) * 100);
-    const color = pct >= 100 ? '#C0402F' : pct >= 80 ? '#C87B2A' : '#4A7C59';
-    return `<div class="budget-item">
-      <div class="budget-header">
-        <div class="budget-cat">${getCatIcon(b.category)} ${b.category}</div>
-        <div style="display:flex;align-items:center;gap:8px">
-          <div class="budget-amounts">${fmt(b.spent)} / ${fmt(b.limit_amount)}</div>
-          <button onclick="deleteBudget(${b.id})" style="background:none;border:none;color:#C0402F;font-size:16px;cursor:pointer;padding:2px">×</button>
+  wrap.innerHTML = '<div class="spinner"></div>';
+  
+  try {
+    budgets = await fetchJSON(`${API}/budgets?month=${currentMonth}`);
+    
+    if (!budgets.length) {
+      wrap.innerHTML = `
+        <div class="card">
+          <div class="empty">
+            <div class="empty-icon">🎯</div>
+            <div class="empty-text">No budgets yet</div>
+            <div class="empty-sub">Tap + to set spending limits for this month</div>
+          </div>
+        </div>`;
+      return;
+    }
+    
+    const items = budgets.map(b => {
+      const pct = Math.min(100, (b.spent / b.limit_amount) * 100);
+      const color = pct >= 100 ? '#C0402F' : pct >= 80 ? '#C87B2A' : '#4A7C59';
+      const remaining = b.limit_amount - b.spent;
+      const remainingText = remaining >= 0 ? `${fmt(remaining)} left` : `${fmt(Math.abs(remaining))} over`;
+      
+      return `<div class="budget-item">
+        <div class="budget-header">
+          <div class="budget-cat">${getCatIcon(b.category)} ${b.category}</div>
+          <button onclick="deleteBudget(${b.id})" style="background:none;border:none;color:var(--red);font-size:20px;cursor:pointer;padding:4px 8px;" title="Delete budget">×</button>
         </div>
-      </div>
-      <div class="budget-bar-bg">
-        <div class="budget-bar-fill" style="width:${pct}%;background:${color}"></div>
-      </div>
-    </div>`;
-  }).join('');
-  wrap.innerHTML = `<div class="card"><div class="card-title">Monthly Budgets</div>${items}</div>`;
+        <div class="budget-header" style="margin-bottom:4px">
+          <div class="budget-amounts">Spent: ${fmt(b.spent)}</div>
+          <div class="budget-amounts" style="color:${remaining >= 0 ? 'var(--green)' : 'var(--red)'}">${remainingText}</div>
+        </div>
+        <div class="budget-bar-bg">
+          <div class="budget-bar-fill" style="width:${pct}%;background:${color}"></div>
+        </div>
+        <div class="budget-header" style="margin-top:4px">
+          <div class="budget-amounts">Budget: ${fmt(b.limit_amount)}</div>
+          <div class="budget-amounts">${pct.toFixed(0)}% used</div>
+        </div>
+      </div>`;
+    }).join('');
+    
+    wrap.innerHTML = `
+      <div class="card">
+        <div class="card-title">Monthly Budgets - ${formatMonth(currentMonth)}</div>
+        ${items}
+      </div>`;
+  } catch (error) {
+    console.error('Error loading budgets:', error);
+    wrap.innerHTML = `
+      <div class="card">
+        <div class="empty">
+          <div class="empty-text">Failed to load budgets</div>
+          <div class="empty-sub">Pull to refresh</div>
+        </div>
+      </div>`;
+  }
 }
 
 function openBudgetSheet() {
@@ -1142,32 +1339,62 @@ function openBudgetSheet() {
   document.getElementById('overlay').classList.add('open');
   document.getElementById('budgetSheet').classList.add('open');
 }
+
 function closeBudgetSheet() {
   document.getElementById('overlay').classList.remove('open');
   document.getElementById('budgetSheet').classList.remove('open');
 }
-document.getElementById('overlay').addEventListener('click', () => { closeBudgetSheet(); closeSheet(); });
 
 async function saveBudget() {
+  if (isSavingBudget) return;
+  
   const category = document.getElementById('budgetCat').value;
   const limit_amount = parseFloat(document.getElementById('budgetLimit').value);
-  if (!limit_amount || limit_amount <= 0) return showToast('Enter a valid limit');
-  await fetchJSON(`${API}/budgets`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ category, limit_amount, month: currentMonth })
-  });
-  closeBudgetSheet();
-  showToast('Budget saved ✓');
-  renderBudgets();
+  
+  if (!limit_amount || limit_amount <= 0) {
+    showToast('Enter a valid limit');
+    return;
+  }
+  
+  isSavingBudget = true;
+  const saveBtn = document.querySelector('#budgetSheet .sheet-done');
+  const originalText = saveBtn.textContent;
+  saveBtn.textContent = 'Saving...';
+  saveBtn.classList.add('btn-loading');
+  
+  try {
+    await fetchJSON(`${API}/budgets`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ category, limit_amount, month: currentMonth })
+    });
+    closeBudgetSheet();
+    showToast('Budget saved ✓');
+    await renderBudgets();
+  } catch (error) {
+    console.error('Error saving budget:', error);
+    showToast('Error saving budget');
+  } finally {
+    isSavingBudget = false;
+    saveBtn.textContent = originalText;
+    saveBtn.classList.remove('btn-loading');
+  }
 }
 
 async function deleteBudget(id) {
-  await fetchJSON(`${API}/budgets/${id}`, { method: 'DELETE' });
-  showToast('Removed');
-  renderBudgets();
+  if (!confirm('Delete this budget?')) return;
+  
+  try {
+    await fetchJSON(`${API}/budgets/${id}`, { method: 'DELETE' });
+    showToast('Budget removed');
+    await renderBudgets();
+  } catch (error) {
+    console.error('Error deleting budget:', error);
+    showToast('Error deleting budget');
+  }
 }
 
+// Toast Notifications
 let toastTimer;
 function showToast(msg) {
   const t = document.getElementById('toast');
@@ -1177,9 +1404,11 @@ function showToast(msg) {
   toastTimer = setTimeout(() => t.classList.remove('show'), 2000);
 }
 
+// Mascot Upload
 function handleMascotUpload(event) {
   const file = event.target.files[0];
   if (!file) return;
+  
   const reader = new FileReader();
   reader.onload = (e) => {
     const area = document.getElementById('mascotArea');
@@ -1189,6 +1418,9 @@ function handleMascotUpload(event) {
     if (existing) existing.remove();
     const img = document.createElement('img');
     img.src = e.target.result;
+    img.style.width = '100%';
+    img.style.height = '100%';
+    img.style.objectFit = 'cover';
     area.insertBefore(img, area.querySelector('.mascot-upload-input'));
     localStorage.setItem('capyMascotImage', e.target.result);
     showToast('Capybara added! 🌿');
@@ -1196,6 +1428,7 @@ function handleMascotUpload(event) {
   reader.readAsDataURL(file);
 }
 
+// Initialize
 (function restoreMascot() {
   try {
     const saved = localStorage.getItem('capyMascotImage');
@@ -1205,11 +1438,21 @@ function handleMascotUpload(event) {
       placeholder.style.display = 'none';
       const img = document.createElement('img');
       img.src = saved;
+      img.style.width = '100%';
+      img.style.height = '100%';
+      img.style.objectFit = 'cover';
       area.insertBefore(img, area.querySelector('.mascot-upload-input'));
     }
   } catch(e) {}
 })();
 
+// Close sheets when clicking overlay
+document.getElementById('overlay').addEventListener('click', () => { 
+  closeBudgetSheet(); 
+  closeSheet(); 
+});
+
+// Initial load
 refreshAll();
 </script>
 </body>
